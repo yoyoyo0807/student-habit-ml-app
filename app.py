@@ -9,6 +9,7 @@ import plotly.express as px
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "concise-booking-473310-a0-49cbb2545f4a.json"
 client = bigquery.Client()
 
+st.set_page_config(page_title="大学生習慣分析", layout="wide")
 st.title("🎓 大学生の習慣分析・成績予測アプリ")
 
 @st.cache_data
@@ -27,7 +28,10 @@ attendance = st.sidebar.slider("出席率 (%)", 0, 100, 90)
 
 if os.path.exists('models/student_model.pkl'):
     model = joblib.load('models/student_model.pkl')
-    prediction = model.predict([[study, sleep, sns, attendance]])
+    # 警告回避のためDataFrame形式で入力
+    input_df = pd.DataFrame([[study, sleep, sns, attendance]], 
+                            columns=['study_hours_per_day', 'sleep_hours', 'social_media_hours', 'attendance_percentage'])
+    prediction = model.predict(input_df)
     st.sidebar.success(f"あなたの予測試験スコア: {prediction[0]:.1f}点")
 else:
     st.sidebar.warning("モデルを先に学習させてください (train_model.pyを実行)")
@@ -43,5 +47,10 @@ with col1:
 
 with col2:
     st.write("### 学習時間別の平均スコア")
-    avg_score = df.groupby(pd.cut(df['study_hours_per_day'], bins=5))['exam_score'].mean()
-    st.bar_chart(avg_score)
+    # エラー回避のため型変換
+    df['study_bin'] = pd.cut(df['study_hours_per_day'], bins=5).astype(str)
+    bin_avg = df.groupby('study_bin', observed=True)['exam_score'].mean().reset_index()
+    st.bar_chart(data=bin_avg, x='study_bin', y='exam_score')
+
+# 生データの表示
+st.write("### BigQueryから取得した生データ", df.head())
