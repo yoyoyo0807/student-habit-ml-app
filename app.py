@@ -2,24 +2,34 @@ import streamlit as st
 import pandas as pd
 import os
 import json
+import re
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
 st.set_page_config(page_title="Student Success AI", layout="wide")
 
 def get_bq_client():
-    # 1. 環境変数 (GitHub/Streamlitの環境変数) から取得を試みる
-    env_key = os.getenv("GCP_JSON_KEY")
+    # Secretsから取得
+    raw_key = st.secrets.get("GCP_JSON_KEY")
     
-    if env_key:
-        info = json.loads(env_key)
-        credentials = service_account.Credentials.from_service_account_info(info)
-        return bigquery.Client(credentials=credentials, project=info["project_id"])
-    
-    # 2. ローカル環境用 (JSONファイル)
-    json_path = "concise-booking-473310-a0-49cbb2545f4a.json"
-    if os.path.exists(json_path):
-        return bigquery.Client.from_service_account_json(json_path)
+    if raw_key:
+        try:
+            # 文字列の前後にある余計なシングル/ダブルクォートや空白を徹底的に掃除
+            clean_key = raw_key.strip().strip("'").strip('"')
+            
+            # JSONとして読み込み
+            info = json.loads(clean_key)
+            
+            # private_key内の改行コードを正常化
+            if "private_key" in info:
+                info["private_key"] = info["private_key"].replace("\\n", "\n")
+            
+            credentials = service_account.Credentials.from_service_account_info(info)
+            return bigquery.Client(credentials=credentials, project=info["project_id"])
+        except Exception as e:
+            st.error(f"JSONパースエラー: {e}")
+            # デバッグ用に中身の断片を表示（本番では削除推奨）
+            st.code(raw_key[:50] + "..." + raw_key[-50:])
     
     return None
 
@@ -30,9 +40,9 @@ try:
     if client:
         query = f"SELECT * FROM `{client.project}.student_data.habits_performance` LIMIT 5"
         df = client.query(query).to_dataframe()
-        st.success("認証に成功しました！")
+        st.success("🎉 BigQuery への接続に成功しました！")
         st.dataframe(df)
     else:
-        st.error("認証情報が見つかりません。")
+        st.warning("認証情報 (GCP_JSON_KEY) が設定されていません。")
 except Exception as e:
-    st.error(f"エラー: {e}")
+    st.error(f"接続エラー: {e}")
