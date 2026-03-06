@@ -3,23 +3,22 @@ import pandas as pd
 import joblib
 import os
 import json
+import base64
 from google.cloud import bigquery
 
-# ページ設定
 st.set_page_config(page_title="Student Success AI", layout="wide")
 
-# 認証設定（Secretsを一時ファイルとして書き出す方式）
 def get_bq_client():
-    if "gcp_service_account" in st.secrets:
-        # Secretsから辞書を取得
-        info = dict(st.secrets["gcp_service_account"])
-        # 鍵のフォーマットを修正
-        info["private_key"] = info["private_key"].replace("\\n", "\n").strip().strip('"')
+    # SecretsからBase64形式の鍵を取得
+    if "GCP_SERVICE_ACCOUNT_BASE64" in st.secrets:
+        encoded_key = st.secrets["GCP_SERVICE_ACCOUNT_BASE64"]
+        # デコードして辞書形式に戻す
+        decoded_key = base64.b64decode(encoded_key).decode("utf-8")
+        info = json.loads(decoded_key)
         
-        # 一時的なJSONファイルを作成
+        # 一時的なJSONファイルとして書き出してBigQueryクライアントを作成
         with open("temp_key.json", "w") as f:
             json.dump(info, f)
-        
         return bigquery.Client.from_service_account_json("temp_key.json")
     else:
         # ローカル環境用
@@ -27,16 +26,30 @@ def get_bq_client():
 
 try:
     client = get_bq_client()
-    st.success("BigQuery 認証成功！")
+    
+    st.title("🎓 大学生の習慣分析・成績向上アドバイザー")
     
     # データ取得
-    query = f"SELECT * FROM `{client.project}.student_data.habits_performance` LIMIT 5"
+    query = f"SELECT * FROM `{client.project}.student_data.habits_performance`"
     df = client.query(query).to_dataframe()
-    st.dataframe(df)
+    st.success("BigQuery との連携に成功しました！")
+
+    # サイドバー: パラメータ設定
+    st.sidebar.header("📊 パラメータ設定")
+    study = st.sidebar.slider("1日の勉強時間 (時)", 0.0, 10.0, 4.0)
+    sleep = st.sidebar.slider("睡眠時間 (時)", 0.0, 12.0, 7.0)
+    sns = st.sidebar.slider("SNS利用時間 (時)", 0.0, 10.0, 2.0)
+    attendance = st.sidebar.slider("出席率 (%)", 0, 100, 90)
+
+    # モデル読み込みと予測
+    if os.path.exists('models/student_model.pkl'):
+        model = joblib.load('models/student_model.pkl')
+        features = ['study_hours_per_day', 'sleep_hours', 'social_media_hours', 'attendance_percentage']
+        input_df = pd.DataFrame([[study, sleep, sns, attendance]], columns=features)
+        prediction = model.predict(input_df)[0]
+        st.sidebar.metric("予測試験スコア", f"{prediction:.1f} 点")
     
+    st.write("### 取得データサンプル", df.head())
+
 except Exception as e:
-    st.error(f"認証またはデータ取得に失敗しました: {e}")
-    # 秘密鍵の形式をデバッグ表示（重要：本番では消すこと）
-    if "gcp_service_account" in st.secrets:
-        st.write("Key starts with:", st.secrets["gcp_service_account"]["private_key"][:30])
-        st.write("Key ends with:", st.secrets["gcp_service_account"]["private_key"][-30:])
+    st.error(f"エラーが発生しました: {e}")
