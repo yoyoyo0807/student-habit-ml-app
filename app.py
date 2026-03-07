@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import joblib
+import re
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
@@ -15,21 +16,29 @@ def get_bq_client():
     if "gcp_service_account" not in st.secrets:
         return None
     
-    # Secretsから辞書を取得し、加工せずにそのまま使う
     info = dict(st.secrets["gcp_service_account"])
+    raw_pk = info.get("private_key", "")
+
+    # --- 鍵の強制フォーマット処理 ---
+    # 1. 英数字と記号以外のノイズ（\n という文字列、実際の改行、スペース、バックスラッシュ）をすべて除去
+    clean_body = re.sub(r'-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|[\s\\n]', '', raw_pk)
     
+    # 2. 64文字ごとに改行を入れる（PEM形式の標準規格）
+    formatted_body = "\n".join([clean_body[i:i+64] for i in range(0, len(clean_body), 64)])
+    
+    # 3. 正しいヘッダーとフッターで包み直す
+    info["private_key"] = f"-----BEGIN PRIVATE KEY-----\n{formatted_body}\n-----END PRIVATE KEY-----\n"
+
     try:
         credentials = service_account.Credentials.from_service_account_info(info)
         return bigquery.Client(credentials=credentials, project=info["project_id"])
     except Exception as e:
-        # エラー時はデバッグ用に生データの文字数だけ表示
         st.error(f"BigQuery接続エラー: {e}")
-        raw_pk = info.get("private_key", "")
-        st.write(f"DEBUG: Secrets内のprivate_key文字列長: {len(raw_pk)}")
+        st.write(f"DEBUG: 処理後の本体文字数: {len(clean_body)}")
         return None
 
 def main():
-    st.title("🎓 大学生の習慣分析・成績向上アドバイザー")
+    st.title("🎓 大大学生の習慣分析・成績向上アドバイザー")
     try:
         model = load_model()
         st.sidebar.success("✅ モデルをロードしました")
