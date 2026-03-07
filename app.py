@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import joblib
-import re
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
@@ -16,25 +15,18 @@ def get_bq_client():
     if "gcp_service_account" not in st.secrets:
         return None
     
+    # Secretsから辞書を取得（一切の加工を行わない）
     info = dict(st.secrets["gcp_service_account"])
-    raw_pk = info.get("private_key", "")
-
-    # --- 鍵の強制フォーマット処理 ---
-    # 1. 英数字と記号以外のノイズ（\n という文字列、実際の改行、スペース、バックスラッシュ）をすべて除去
-    clean_body = re.sub(r'-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|[\s\\n]', '', raw_pk)
     
-    # 2. 64文字ごとに改行を入れる（PEM形式の標準規格）
-    formatted_body = "\n".join([clean_body[i:i+64] for i in range(0, len(clean_body), 64)])
-    
-    # 3. 正しいヘッダーとフッターで包み直す
-    info["private_key"] = f"-----BEGIN PRIVATE KEY-----\n{formatted_body}\n-----END PRIVATE KEY-----\n"
-
     try:
+        # info["private_key"] の中身をそのまま認証に使用
         credentials = service_account.Credentials.from_service_account_info(info)
         return bigquery.Client(credentials=credentials, project=info["project_id"])
     except Exception as e:
         st.error(f"BigQuery接続エラー: {e}")
-        st.write(f"DEBUG: 処理後の本体文字数: {len(clean_body)}")
+        # 診断用に生データの文字数だけ表示
+        raw_pk = info.get("private_key", "")
+        st.write(f"DEBUG: Secrets内のprivate_key文字列長: {len(raw_pk)}")
         return None
 
 def main():
