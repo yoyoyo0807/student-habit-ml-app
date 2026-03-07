@@ -15,22 +15,23 @@ def get_bq_client():
     if "gcp_service_account" not in st.secrets:
         return None
     
-    # Secretsから辞書を取得（一切の加工を行わない）
     info = dict(st.secrets["gcp_service_account"])
     
+    # 【重要】文字としての "\n" を 本物の改行コードに変換
+    if "private_key" in info:
+        info["private_key"] = info["private_key"].replace("\\n", "\n")
+    
     try:
-        # info["private_key"] の中身をそのまま認証に使用
         credentials = service_account.Credentials.from_service_account_info(info)
         return bigquery.Client(credentials=credentials, project=info["project_id"])
     except Exception as e:
         st.error(f"BigQuery接続エラー: {e}")
-        # 診断用に生データの文字数だけ表示
-        raw_pk = info.get("private_key", "")
-        st.write(f"DEBUG: Secrets内のprivate_key文字列長: {len(raw_pk)}")
+        # 文字数確認（改行変換後）
+        st.write(f"DEBUG: 変換後の鍵文字数: {len(info.get('private_key', ''))}")
         return None
 
 def main():
-    st.title("🎓 大大学生の習慣分析・成績向上アドバイザー")
+    st.title("🎓 大学生の習慣分析・成績向上アドバイザー")
     try:
         model = load_model()
         st.sidebar.success("✅ モデルをロードしました")
