@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import joblib
-import os
+import base64
 import re
 from google.cloud import bigquery
 from google.oauth2 import service_account
@@ -16,25 +16,26 @@ def load_model():
 def get_bq_client():
     if "gcp_service_account" not in st.secrets:
         return None
-    
     info = dict(st.secrets["gcp_service_account"])
     pk = info.get("private_key", "")
 
-    # --- 強制整形ロジック ---
-    # 1. ヘッダーとフッターを一旦取り除く
-    body = pk.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "")
-    # 2. 全ての改行、空白、バックスラッシュ、\n という文字列を除去
-    body = re.sub(r'[\s\\n]', '', body)
-    # 3. 正しいヘッダーとフッターで包み直す
-    clean_pk = f"-----BEGIN PRIVATE KEY-----\n{body}\n-----END PRIVATE KEY-----"
-    info["private_key"] = clean_pk
-    # -----------------------
+    # --- 究極の鍵修復ロジック ---
+    # 1. ヘッダー・フッターを除去し、英数字と記号以外(改行、\n、空白、バックスラッシュ)を完全排除
+    body = re.sub(r'-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|[\s\\n]', '', pk)
+    
+    # 2. 64文字ごとに改行を入れる（標準的なPEM形式）
+    formatted_body = "\n".join([body[i:i+64] for i in range(0, len(body), 64)])
+    
+    # 3. 正しいガワで包み直す
+    info["private_key"] = f"-----BEGIN PRIVATE KEY-----\n{formatted_body}\n-----END PRIVATE KEY-----\n"
 
     try:
         credentials = service_account.Credentials.from_service_account_info(info)
         return bigquery.Client(credentials=credentials, project=info["project_id"])
     except Exception as e:
         st.error(f"BigQuery接続エラー: {e}")
+        # 診断用：現在の文字数を出力
+        st.write(f"DEBUG: 最終的な鍵本体の文字数: {len(body)}")
         return None
 
 def main():
@@ -65,9 +66,13 @@ def main():
     st.subheader("📊 実際の学習データ (BigQuery)")
     client = get_bq_client()
     if client:
-        query = f"SELECT * FROM `{client.project}.student_data.habits_performance` LIMIT 5"
-        df = client.query(query).to_dataframe()
-        st.dataframe(df, use_container_width=True)
+        try:
+            query = f"SELECT * FROM `{client.project}.student_data.habits_performance` LIMIT 5"
+            df = client.query(query).to_dataframe()
+            st.success("✅ BigQuery接続成功")
+            st.dataframe(df, use_container_width=True)
+        except Exception as e:
+            st.error(f"クエリ実行エラー: {e}")
 
 if __name__ == "__main__":
     main()
