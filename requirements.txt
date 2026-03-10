@@ -4,3 +4,4 @@ google-cloud-bigquery
 scikit-learn
 plotly
 db-dtypes
+statsmodels
